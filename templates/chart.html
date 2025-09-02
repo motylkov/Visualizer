@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="copyright" content="Copyright (c) 2025 Maxim Motylkov" />
+  <meta name="license" content="Mozilla Public License 2.0" />
+  <title>{{.Title}}</title>
+  <script src="https://www.unpkg.com/@devexperts/dxcharts-lite@latest/dist/dxchart.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f9f9f9;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    #chart_container {
+      width: 100%;
+      height: 600px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    select, button {
+      padding: 10px;
+      margin: 10px 5px 10px 0;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{{.Title}}</h1>
+
+    <div class="controls">
+      <select id="figiSelect">
+        {{if .Instruments}}
+          {{range .Instruments}}
+          <option value="{{.Figi}}">{{.Ticker}} — {{.Name}}</option>
+          {{end}}
+        {{else}}
+          <option value="">Нет доступных инструментов</option>
+        {{end}}
+      </select>
+
+      <select id="intervalSelect">
+        {{range .Intervals}}
+        <option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+
+      <button onclick="loadData()">Загрузить данные</button>
+  
+      <div id="status" class="loading" style="display: none;">Загрузка данных...</div>
+    </div>
+
+    <div id="chart_container"></div>
+  </div>
+
+  <script>
+    let chart = null;
+
+    // Инициализация графика
+    function initChart() {
+      const container = document.getElementById('chart_container');
+      
+      const config = {
+        devexpertsProprietaryFeatures: false,
+        components: {
+          chart: {
+            type: 'candle'
+          },
+          volumes: {
+            visible: true,
+            showSeparately: true   // Режим отдельного сегмента
+          },
+          crossTool: {
+            enabled: true
+          }
+        },
+        colors: {
+          candleTheme: {
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            upWickColor: '#26a69a', 
+            downWickColor: '#ef5350',
+            borderUpColor: '#26a69a',
+            borderDownColor: '#ef5350'
+          },
+          volumeTheme: {
+            upColor: '#26a69a80',
+            downColor: '#ef535080'
+          }
+        }
+      };
+
+      // Создаем экземпляр графика
+      chart = DXChart.createChart(container, config);
+      
+      // Настраиваем режим отдельного сегмента для volumes
+      if (chart.volumesComponent) {
+        try {
+          if (typeof chart.volumesComponent.setShowVolumesSeparatly === 'function') {
+            chart.volumesComponent.setShowVolumesSeparatly(true);
+          }
+          if (chart.volumesComponent._state) {
+            chart.volumesComponent._state.visible = true;
+          }
+        } catch (error) {
+          console.error('Error enabling volumes component:', error);
+        }
+      }
+      
+      return chart;
+    }
+
+    // Функция загрузки данных
+    async function loadData() {
+      const figi = document.getElementById("figiSelect").value;
+      const interval = document.getElementById("intervalSelect").value;
+      const status = document.getElementById("status");
+
+      try {
+        status.style.display = 'block';
+        status.textContent = 'Загрузка данных...';
+        
+        const response = await fetch(`/api/candles?figi=${figi}&interval=${interval}`);
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const responseText = await response.text();
+        console.log('Raw response:', responseText);
+        
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          throw new Error('Invalid JSON response');
+        }
+        
+        console.log('API Response:', data);
+        console.log('Data type:', typeof data);
+        console.log('Is array:', Array.isArray(data));
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          console.warn("Нет данных для отображения");
+          status.style.display = 'none';
+          return;
+        }
+
+        // Преобразуем данные в формат DXCharts Lite
+        const candlesData = data.map(d => ({
+          timestamp: d.timestamp,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close
+        }));
+
+        // Создаем данные объемов
+        const volumesData = data.map(d => ({
+          timestamp: parseInt(d.timestamp),
+          value: parseFloat(d.volume) || 0
+        })).filter(v => v.value > 0);
+
+        // Создаем интегрированный формат с volumes в каждой свече
+        const integratedCandles = candlesData.map((candle, index) => ({
+          ...candle,
+          volume: volumesData[index]?.value || 0
+        }));
+        
+        // Устанавливаем данные в график
+        chart.setData({ 
+          candles: integratedCandles
+        });
+        
+        // Убеждаемся, что volumes отображаются в отдельном сегменте
+        if (chart.volumesComponent && typeof chart.volumesComponent.setShowVolumesSeparatly === 'function') {
+          chart.volumesComponent.setShowVolumesSeparatly(true);
+        }
+        
+        // Принудительная перерисовка
+        if (chart.drawingManager && typeof chart.drawingManager.forceDraw === 'function') {
+          chart.drawingManager.forceDraw();
+        }
+        
+        status.textContent = `Загружено ${data.length} свечей с объемами`;
+        setTimeout(() => {
+          status.style.display = 'none';
+        }, 2000);
+
+      } catch (err) {
+        console.error("Ошибка загрузки данных:", err);
+        status.textContent = "Ошибка загрузки данных: " + err.message;
+        status.style.color = '#ef5350';
+      }
+    }
+
+    // Инициализация при загрузке страницы
+    window.onload = function() {
+      initChart();
+      loadData();
+    };
+
+    // Обработка изменения размера окна
+    window.addEventListener('resize', function() {
+      if (chart && typeof chart.updateDimensions === 'function') {
+        chart.updateDimensions();
+      }
+    });
+  </script>
+</body>
+</html>

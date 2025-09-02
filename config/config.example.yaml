@@ -1,0 +1,19 @@
+# Конфигурация для визуализации биржевых исторических данных
+# Работает со структурой данных проекта https://github.com/motylkov/market-loader
+
+# Настройки базы данных PostgreSQL
+database:
+  host: "localhost"
+  # host: "localhost"        # Локальная база
+  # host: "192.168.1.100"   # Удаленная база по IP
+  # host: "db.example.com"  # Удаленная база по домену
+  port: 5432   # Стандартный порт PostgreSQL
+  # Имя пользователя базы данных
+  user: "t_invest_user" # Имя пользователя базы данных
+  password: "your_secure_password" # Пароль пользователя базы данных
+  dbname: "invest" # Имя базы данных (не изменяйте). Это значение жестко задано в коде для совместимости.
+  sslmode: "disable"
+  # sslmode: "disable"       # Без SSL (для локальной разработки)
+  # sslmode: "require"       # Требует SSL (для продакшена)
+  # sslmode: "verify-full"   # Полная проверка SSL сертификата
+  sslmode: "disable"
