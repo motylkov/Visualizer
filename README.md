@@ -170,4 +170,4 @@ This project is a demonstration tool for visualizing market data. The authors an
 
 Этот проект распространяется под лицензией Mozilla Public License 2.0 (MPL-2.0). См. файл [LICENSE](LICENSE) для получения дополнительной информации.
 
-**Copyright (C) 2025 Maxim Motylkov**
+Copyright (C) 2025 Maxim Motylkov
