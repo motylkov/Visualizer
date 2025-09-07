@@ -1,23 +1,22 @@
+// Package main
+//
+// # Copyright (C) 2025 Maxim Motylkov
+//
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
-//
-// Copyright (c) 2025 Maxim Motylkov
-
 package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
+	"visualizer/pkg/config"
 	"visualizer/pkg/database"
-	"visualizer/pkg/mainlib"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Candle struct {
@@ -32,14 +31,17 @@ type Candle struct {
 }
 
 // Use shared config type from mainlib
-type Config = mainlib.Config
+type Config = config.Config
 
 func main() {
 	log.Println("Запуск приложения...")
 
+	// Создаем контекст
+	ctx := context.Background()
+
 	// Загружаем конфигурацию из общей библиотеки с авто-определением пути
 	log.Println("Загрузка конфигурации...")
-	cfg, err := mainlib.LoadConfig(mainlib.GetConfigPath())
+	cfg, err := config.LoadConfig(config.GetConfigPath())
 	if err != nil {
 		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
 	}
@@ -47,7 +49,7 @@ func main() {
 
 	// Подключаемся к PostgreSQL
 	log.Println("Подключение к базе данных...")
-	db, err := connectDatabase(cfg)
+	db, err := database.ConnectToDatabase(ctx, &cfg.Database)
 	if err != nil {
 		log.Fatalf("ERR: Ошибка подключения к БД: %v", err)
 	}
@@ -72,7 +74,7 @@ func main() {
 		}
 
 		// Получаем доступные интервалы
-		intervals := mainlib.GetAvailableIntervals()
+		intervals := config.GetAvailableIntervals()
 
 		return c.Render("chart", fiber.Map{
 			"Title":       "График акций",
@@ -94,20 +96,20 @@ func main() {
         `, figi, interval)
 
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		defer rows.Close()
 
 		var candles []map[string]interface{}
 		for rows.Next() {
 			var timeVal time.Time
-			var open, high, low, close float64
+			var open, high, low, closePrice float64
 			var figi, interval string
 			var volume int64
 
-			err := rows.Scan(&figi, &timeVal, &open, &high, &low, &close, &volume, &interval)
+			err := rows.Scan(&figi, &timeVal, &open, &high, &low, &closePrice, &volume, &interval)
 			if err != nil {
-				return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 
 			// DXCharts Lite требует timestamp в миллисекундах
@@ -118,7 +120,7 @@ func main() {
 				"open":      open,
 				"high":      high,
 				"low":       low,
-				"close":     close,
+				"close":     closePrice,
 				"volume":    volume,
 			})
 		}
@@ -137,7 +139,7 @@ func main() {
 		instruments, err := database.GetEnabledInstruments(db)
 		if err != nil {
 			log.Printf("Ошибка получения инструментов: %v", err)
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		log.Printf("Получено %d инструментов", len(instruments))
 
@@ -151,7 +153,7 @@ func main() {
 
 	// API: получение доступных интервалов
 	app.Get("/api/intervals", func(c *fiber.Ctx) error {
-		intervals := mainlib.GetAvailableIntervals()
+		intervals := config.GetAvailableIntervals()
 		return c.JSON(intervals)
 	})
 
@@ -162,7 +164,7 @@ func main() {
 			SELECT DISTINCT figi FROM candles LIMIT 10
 		`)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		defer figiRows.Close()
 
@@ -170,7 +172,7 @@ func main() {
 		for figiRows.Next() {
 			var figi string
 			if err := figiRows.Scan(&figi); err != nil {
-				return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 			figis = append(figis, figi)
 		}
@@ -180,7 +182,7 @@ func main() {
 			SELECT DISTINCT interval_type FROM candles
 		`)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		defer intervalRows.Close()
 
@@ -188,7 +190,7 @@ func main() {
 		for intervalRows.Next() {
 			var interval string
 			if err := intervalRows.Scan(&interval); err != nil {
-				return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 			}
 			intervals = append(intervals, interval)
 		}
@@ -197,7 +199,7 @@ func main() {
 		var count int
 		err = db.QueryRow(c.Context(), `SELECT COUNT(*) FROM candles`).Scan(&count)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		return c.JSON(fiber.Map{
@@ -208,37 +210,13 @@ func main() {
 	})
 
 	app.Use(func(c *fiber.Ctx) error {
-		return c.Status(404).SendString("Страница не найдена")
+		return c.Status(fiber.StatusNotFound).SendString("Страница не найдена")
 	})
 
 	// Запуск сервера
 	log.Println("Запуск сервера на порту 8080...")
-	log.Fatal(app.Listen(":8080"))
-}
-
-// локальная функция loadConfig удалена; используется mainlib.LoadConfig
-
-// connectDatabase подключается к PostgreSQL
-func connectDatabase(cfg *Config) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host,
-		cfg.Database.Port,
-		cfg.Database.User,
-		cfg.Database.Password,
-		cfg.Database.DBName,
-		cfg.Database.SSLMode,
-	)
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания пула подключений: %w", err)
+	if err := app.Listen(":8080"); err != nil {
+		log.Println("Ошибка запуска сервера:", err)
+		return
 	}
-
-	// Проверяем подключение
-	if err := pool.Ping(context.Background()); err != nil {
-		return nil, fmt.Errorf("ошибка ping к БД: %w", err)
-	}
-
-	return pool, nil
 }

@@ -35,7 +35,7 @@
 ### 1. Клонирование репозитория
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/motylkov/Visualizer.git
 cd visualizer
 ```
 
@@ -43,7 +43,7 @@ cd visualizer
 
 Для создания структуры базы данных и заполнения её данными используйте отдельный репозиторий:
 
-**[github.com/motylkov/market-loader](https://github.com/motylkov/market-loader)**
+**[market-loader](https://github.com/motylkov/market-loader)**
 
 Этот репозиторий содержит:
 - Загрузчик данных с API Т-Инвестиций
@@ -76,7 +76,6 @@ make build
 # Запуск собранного бинарника
 make run
 ```
-
 Бинарные файлы будут созданы в папке `bin/`.
 
 
